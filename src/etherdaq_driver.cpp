@@ -375,9 +375,34 @@ bool EtherDAQDriver::waitForNewData()
     got_new_data = packet_count_ != current_packet_count;
   }
 
+  //if last wait also failed - increment stream_timeout_counter
+  if (got_new_data == false && this->last_stream_check_state == false)
+    this->stream_timeout_counter++;
+
+  //if this wait passed
+  if (got_new_data == true)
+  {
+    this->stream_timeout_counter = 0;
+    this->stream_alive = true;
+    ROS_INFO("new data available zero out counter - stream is alive"); //TODO delete
+  }
+
+  // if stream wait failed for 10 times - object will be reintialized from etherdaq_node
+  if(this->stream_timeout_counter > 11) //TODO change to ==
+  {
+    this->stream_alive = false;
+    ROS_INFO("stream is dead"); //TODO delete
+  }
+
+  this->last_stream_check_state = got_new_data;
+
   return got_new_data;
 }
 
+bool EtherDAQDriver::is_stream_alive()
+{
+  return this->stream_alive;
+}
 
 void EtherDAQDriver::startStreaming(void)
 {

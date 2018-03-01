@@ -73,6 +73,9 @@ public:
 	
   void doZero();	
   void doUnzero();
+
+  bool is_stream_alive();
+
 protected:
   void recvThreadFunc(void);
 
@@ -130,6 +133,11 @@ protected:
 	
 	
   geometry_msgs::WrenchStamped offset_data_;
+
+  //checking if stream is dead
+  bool stream_alive;
+  bool last_stream_check_state;
+  char stream_timeout_counter;
 	
 };
 

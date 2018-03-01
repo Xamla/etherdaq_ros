@@ -122,6 +122,7 @@ int main(int argc, char **argv)
     ROS_WARN("Publishing EthernetDAQ data as geometry_msgs::Wrench is deprecated");
   }
 
+  //initializing the sensor for the first time
   etherdaq = new optoforce_etherdaq_driver::EtherDAQDriver(address, pub_rate_hz, filter_hz);
 	
   bool isRawData = etherdaq->isRawData();
@@ -152,34 +153,49 @@ int main(int argc, char **argv)
   ros::Time last_diag_pub_time(ros::Time::now());
 
   unsigned int packetCount = 0; 
-  ros::Time startTime(ros::Time::now());	
+  ros::Time startTime(ros::Time::now());
+
   while (ros::ok())
   {
-    if (etherdaq->waitForNewData())
+    //if stream dies reintialize object - specially handles powercut
+    if (!etherdaq->is_stream_alive())
     {
+      //ROS_INFO("stream is dead - reintialize object"); //TODO delete
+      etherdaq->~EtherDAQDriver(); //destruct old object
+      ros::Duration(3).sleep();
+      //ROS_INFO("retrying to connect now"); //TODO delete
+      etherdaq = new optoforce_etherdaq_driver::EtherDAQDriver(address, pub_rate_hz, filter_hz);
+    }
+
+    if (etherdaq->waitForNewData() && etherdaq->is_stream_alive())
+    {
+      //ROS_INFO("execution before publishing message"); //TODO delete
       etherdaq->getData(data);
-      packetCount++; 
-      if (publish_wrench) 
+      packetCount++;
+      if (publish_wrench)
       {
-	data.header.frame_id = frame_id;
+  data.header.frame_id = frame_id;
         pub.publish(data.wrench);
       }
-      else 
+      else
       {
-   	data.header.frame_id = frame_id;
+    data.header.frame_id = frame_id;
         pub.publish(data);
       }
     }
-    
-    ros::Time current_time(ros::Time::now());
-    if ( (current_time - last_diag_pub_time) > diag_pub_duration )
+
+    if(etherdaq->is_stream_alive())
     {
-      diag_array.status.clear();
-      etherdaq->diagnostics(diag_status);
-      diag_array.status.push_back(diag_status);
-      diag_array.header.stamp = ros::Time::now();
-      diag_pub.publish(diag_array);
-      last_diag_pub_time = current_time;
+      ros::Time current_time(ros::Time::now());
+      if ( (current_time - last_diag_pub_time) > diag_pub_duration )
+      {
+        diag_array.status.clear();
+        etherdaq->diagnostics(diag_status);
+        diag_array.status.push_back(diag_status);
+        diag_array.header.stamp = ros::Time::now();
+        diag_pub.publish(diag_array);
+        last_diag_pub_time = current_time;
+      }
     }
 
     ros::spinOnce();
