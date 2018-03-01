@@ -1,14 +1,32 @@
 <launch>
-	<node
-		pkg="optoforce_etherdaq_driver"
-		type="etherdaq_node"
-		name="etherdaq_node"
-                args="--address 192.168.1.125 --rate 1000 --filter 4"
-	/>
-	<node
-		pkg="optoforce_etherdaq_driver"
-		type="etherdaq_subscriber"
-		name="etherdaq_subscriber"
-		output="screen"
-	/>
+
+  <arg name="ip_address" default="192.168.1.125"/>
+  <arg name="frame_id"   default="ft_link"/>
+  <arg name="rate"       default="100"/>
+  <arg name="filter"     default="4"/>
+  <!-- Set the filtering
+       (Valid parameters: 0 = No filter;
+                          1 = 500 Hz; 2 = 150 Hz;
+                          3 = 50 Hz; 4 = 15 Hz;
+                          5 = 5 Hz; 6 = 1.5 Hz)    -->
+  <!-- add argument "dash dash wrench" to publish old wrench message - the one with no header"/-->
+
+  <!-- which topic to read data from-->
+  <!-- if data are presented as raw /ethdaq_data_raw if force and torque are provided , if not raw /ethdaq_data-->
+
+  <!-- how to do zeroing-->
+  <!-- publish a message on topic /ethdaq_zero -->
+
+  <node pkg="optoforce_etherdaq_driver"
+	type="etherdaq_node"
+	name="etherdaq_node"
+        args="--address $(arg ip_address) --rate $(arg rate) --filter $(arg filter) --frame_id $(arg frame_id)"
+  />
+
+  <node
+	pkg="optoforce_etherdaq_driver"
+	type="etherdaq_subscriber"
+	name="etherdaq_subscriber"
+	output="screen"
+  />
 </launch>
