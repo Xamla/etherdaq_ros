@@ -150,6 +150,15 @@ EtherDAQDriver::EtherDAQDriver(const std::string &address, unsigned int uSpeed, 
   force_units_(0),
   torque_units_(0)
 {
+  //handling sensor disconnections
+  //(1) if  the node is intialized before sensor in up and running
+  //      handled here in the constructor
+  //(2) ethernet and power cut
+  //     the class provides a function is_stream _alive whenever it returns false destroy and rebuild object
+
+  //TODO: sometimes the sensors takes a few seconds more during the intializaiton - investigate
+
+
   // Construct UDP socket
   udp::endpoint etherdaq_endpoint( boost::asio::ip::address_v4::from_string(address), DAQ_PORT);
   socket_.open(udp::v4());
@@ -160,15 +169,36 @@ EtherDAQDriver::EtherDAQDriver(const std::string &address, unsigned int uSpeed, 
   double counts_per_torque = 1.0;
   force_units_ = 0;
   torque_units_ = 0;
-	 
-	  
-   doUnzero();   
-	  
-	 
+
+  doUnzero();
+
   CURL *curl;
   CURLcode result;
   std::string response;
-  curl = curl_easy_init();
+
+  //looping till connection to the sensor is successful
+  //(1) if  the node is intialized before sensor in up and running
+  while(ros::ok())
+  {
+    curl = curl_easy_init();
+    std::string xml_url = "http://" + address_ + "/netftcalapi.xml";
+    curl_easy_setopt(curl, CURLOPT_URL, xml_url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_string);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60);
+    result = curl_easy_perform(curl);
+
+    if(result != CURLE_OK)
+    {
+      ros::Duration(2).sleep();
+      ROS_WARN("Couldn't connect to sensor, Retrying");
+    } else {
+      break;
+    }
+  }
+
+  ROS_INFO("Connection Succeeded");
+
   if(curl)
   {
     std::string xml_url = "http://" + address_ + "/netftcalapi.xml";
