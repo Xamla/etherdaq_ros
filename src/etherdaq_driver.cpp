@@ -150,6 +150,15 @@ EtherDAQDriver::EtherDAQDriver(const std::string &address, unsigned int uSpeed, 
   force_units_(0),
   torque_units_(0)
 {
+  //handling sensor disconnections
+  //(1) if  the node is intialized before sensor in up and running
+  //      handled here in the constructor
+  //(2) ethernet and power cut
+  //     the class provides a function is_stream _alive whenever it returns false destroy and rebuild object
+
+  //TODO: sometimes the sensors takes a few seconds more during the intializaiton - investigate
+
+
   // Construct UDP socket
   udp::endpoint etherdaq_endpoint( boost::asio::ip::address_v4::from_string(address), DAQ_PORT);
   socket_.open(udp::v4());
@@ -160,102 +169,111 @@ EtherDAQDriver::EtherDAQDriver(const std::string &address, unsigned int uSpeed, 
   double counts_per_torque = 1.0;
   force_units_ = 0;
   torque_units_ = 0;
-	 
-	  
-   doUnzero();   
-	  
-	 
+
+  doUnzero();
+
   CURL *curl;
-  CURLcode result;
+  CURLcode result = CURLE_FAILED_INIT; //init curl to non CULRE_OK value
   std::string response;
-  curl = curl_easy_init();
-  if(curl)
+
+  //looping till connection to the sensor is successful
+  //(1) if  the node is intialized before sensor in up and running
+  while(ros::ok())
   {
+    curl = curl_easy_init();
     std::string xml_url = "http://" + address_ + "/netftcalapi.xml";
     curl_easy_setopt(curl, CURLOPT_URL, xml_url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_string);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response); 
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60);
-	
     result = curl_easy_perform(curl);
+
     if(result != CURLE_OK)
-      ROS_WARN("Failed to connect to the EtherDAQ webserver: %s",
-              curl_easy_strerror(result));
+    {
+      ros::Duration(2).sleep();
+      ROS_WARN("Couldn't connect to sensor, Retrying");
+    } else {
+      break;
+    }
+  }
+
+  ROS_INFO("Connection Succeeded");
+
+  if(curl)
+  {
+    TiXmlDocument xml_doc;
+    xml_doc.Parse(response.c_str());
+    if (xml_doc.Error())
+    {
+      ROS_WARN_STREAM(xml_doc.ErrorDesc());
+    }
     else
     {
-      TiXmlDocument xml_doc;
-      xml_doc.Parse(response.c_str());
-      if (xml_doc.Error())
-      {
-        ROS_WARN_STREAM(xml_doc.ErrorDesc());
-      }
+      TiXmlElement *cal_xml = xml_doc.FirstChildElement("netftCalibration");
+      if (!cal_xml)
+        ROS_WARN("Could not find the 'netftCalibration' element in the xml file");
       else
       {
-        TiXmlElement *cal_xml = xml_doc.FirstChildElement("netftCalibration");
-        if (!cal_xml)
-          ROS_WARN("Could not find the 'netftCalibration' element in the xml file");
-        else
+        // Counts per force
+        TiXmlElement *cpf_xml = cal_xml->FirstChildElement("calcpf");
+        if (cpf_xml && cpf_xml->GetText())
         {
-          // Counts per force
-          TiXmlElement *cpf_xml = cal_xml->FirstChildElement("calcpf");
-          if (cpf_xml && cpf_xml->GetText())
+          try
           {
-            try
-            {
-              counts_per_force = boost::lexical_cast<double>(cpf_xml->GetText());
-            }
-            catch (boost::bad_lexical_cast &/*e*/)
-            {
-              ROS_WARN_STREAM("DAQCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
-            }
+            counts_per_force = boost::lexical_cast<double>(cpf_xml->GetText());
           }
-          else
-            ROS_WARN("Could not find the 'calcpf' attribute");
-          // Counts per torque
-          TiXmlElement *cpt_xml = cal_xml->FirstChildElement("calcpt");
-          if (cpt_xml && cpt_xml->GetText())
+          catch (boost::bad_lexical_cast &/*e*/)
           {
-            try
-            {
-              counts_per_torque = boost::lexical_cast<double>(cpt_xml->GetText());
-            }
-            catch (boost::bad_lexical_cast &/*e*/)
-            {
-              ROS_WARN_STREAM("DAQCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
-            }
+            ROS_WARN_STREAM("DAQCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
           }
-          else
-            ROS_WARN("Could not find the 'calcpt' attribute");
-		  // Force units
-			TiXmlElement * fu_xml = cal_xml->FirstChildElement("calfu");
-			if (fu_xml && fu_xml->GetText()) {
-				try {
-
-					force_units_ = boost::lexical_cast<uint32_t>(fu_xml->GetText());
-				}
-				catch (boost::bad_lexical_cast & ) {
-					ROS_WARN_STREAM("DAQCalibration: calfu [" << fu_xml->GetText() << "] is not a number");	
-				}
-			}
-			else {
-				ROS_WARN("Could not find the 'calfu' attribute");
-			}
-		    // Torque units
-			TiXmlElement * tu_xml = cal_xml->FirstChildElement("caltu");
-			if (tu_xml && tu_xml->GetText()) {
-				try {
-					torque_units_ = boost::lexical_cast<uint32_t>(tu_xml->GetText());
-				}
-				catch (boost::bad_lexical_cast & ) {
-					ROS_WARN_STREAM("DAQCalibration: caltu [" << tu_xml->GetText() << "] is not a number");	
-				}
-			}
-			else {
-				ROS_WARN("Could not find the 'caltu' attribute");
-			}
         }
+        else
+          ROS_WARN("Could not find the 'calcpf' attribute");
+        // Counts per torque
+        TiXmlElement *cpt_xml = cal_xml->FirstChildElement("calcpt");
+        if (cpt_xml && cpt_xml->GetText())
+        {
+          try
+          {
+            counts_per_torque = boost::lexical_cast<double>(cpt_xml->GetText());
+          }
+          catch (boost::bad_lexical_cast &/*e*/)
+          {
+            ROS_WARN_STREAM("DAQCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
+          }
+        }
+        else
+          ROS_WARN("Could not find the 'calcpt' attribute");
+    // Force units
+    TiXmlElement * fu_xml = cal_xml->FirstChildElement("calfu");
+    if (fu_xml && fu_xml->GetText()) {
+      try {
+
+        force_units_ = boost::lexical_cast<uint32_t>(fu_xml->GetText());
+      }
+      catch (boost::bad_lexical_cast & ) {
+        ROS_WARN_STREAM("DAQCalibration: calfu [" << fu_xml->GetText() << "] is not a number");
       }
     }
+    else {
+      ROS_WARN("Could not find the 'calfu' attribute");
+    }
+      // Torque units
+    TiXmlElement * tu_xml = cal_xml->FirstChildElement("caltu");
+    if (tu_xml && tu_xml->GetText()) {
+      try {
+        torque_units_ = boost::lexical_cast<uint32_t>(tu_xml->GetText());
+      }
+      catch (boost::bad_lexical_cast & ) {
+        ROS_WARN_STREAM("DAQCalibration: caltu [" << tu_xml->GetText() << "] is not a number");
+      }
+    }
+    else {
+      ROS_WARN("Could not find the 'caltu' attribute");
+    }
+      }
+    }
+
     curl_easy_cleanup(curl);
   }
 
