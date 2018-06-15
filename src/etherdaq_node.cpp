@@ -72,7 +72,7 @@ void zeroFunction(const std_msgs::Bool &msg)
 int main(int argc, char **argv)
 { 
   ros::init(argc, argv, "etherdaq_node");
-  ros::NodeHandle nh;
+  ros::NodeHandle nh("~");
 
   float pub_rate_hz;
   int filter_hz; 
